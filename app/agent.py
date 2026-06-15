@@ -6,6 +6,12 @@ from dataclasses import dataclass
 from . import metrics
 from .mock_llm import FakeLLM
 from .mock_rag import retrieve
+from .optimization import (
+    OPTIMIZED_MAX_OUTPUT,
+    optimize_prompt,
+    price_per_million,
+    route_model,
+)
 from .pii import hash_user_id, summarize_text
 from .tracing import langfuse_context, observe
 
@@ -18,6 +24,7 @@ class AgentResult:
     tokens_out: int
     cost_usd: float
     quality_score: float
+    model: str = "claude-sonnet-4-5"
 
 
 class LabAgent:
@@ -26,19 +33,39 @@ class LabAgent:
         self.llm = FakeLLM(model=model)
 
     @observe()
-    def run(self, user_id: str, feature: str, session_id: str, message: str) -> AgentResult:
+    def run(
+        self,
+        user_id: str,
+        feature: str,
+        session_id: str,
+        message: str,
+        optimize: bool = False,
+    ) -> AgentResult:
         started = time.perf_counter()
         docs = retrieve(message)
-        prompt = f"Feature={feature}\nDocs={docs}\nQuestion={message}"
-        response = self.llm.generate(prompt)
+
+        if optimize:
+            # Cost levers: route easy traffic to the cheap model, trim the
+            # prompt, and cap output length. See app/optimization.py.
+            model = route_model(feature, message, default=self.model)
+            prompt = optimize_prompt(feature, docs, message)
+            max_output = OPTIMIZED_MAX_OUTPUT
+        else:
+            model = self.model
+            prompt = f"Feature={feature}\nDocs={docs}\nQuestion={message}"
+            max_output = None
+
+        response = self.llm.generate(prompt, model=model, max_output_tokens=max_output)
         quality_score = self._heuristic_quality(message, response.text, docs)
         latency_ms = int((time.perf_counter() - started) * 1000)
-        cost_usd = self._estimate_cost(response.usage.input_tokens, response.usage.output_tokens)
+        cost_usd = self._estimate_cost(
+            response.usage.input_tokens, response.usage.output_tokens, model
+        )
 
         langfuse_context.update_current_trace(
             user_id=hash_user_id(user_id),
             session_id=session_id,
-            tags=["lab", feature, self.model],
+            tags=["lab", feature, model, "optimized" if optimize else "baseline"],
         )
         langfuse_context.update_current_observation(
             metadata={"doc_count": len(docs), "query_preview": summarize_text(message)},
@@ -60,11 +87,13 @@ class LabAgent:
             tokens_out=response.usage.output_tokens,
             cost_usd=cost_usd,
             quality_score=quality_score,
+            model=model,
         )
 
-    def _estimate_cost(self, tokens_in: int, tokens_out: int) -> float:
-        input_cost = (tokens_in / 1_000_000) * 3
-        output_cost = (tokens_out / 1_000_000) * 15
+    def _estimate_cost(self, tokens_in: int, tokens_out: int, model: str | None = None) -> float:
+        in_rate, out_rate = price_per_million(model or self.model)
+        input_cost = (tokens_in / 1_000_000) * in_rate
+        output_cost = (tokens_out / 1_000_000) * out_rate
         return round(input_cost + output_cost, 6)
 
     def _heuristic_quality(self, question: str, answer: str, docs: list[str]) -> float:

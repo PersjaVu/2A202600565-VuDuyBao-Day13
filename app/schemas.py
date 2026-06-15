@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., examples=["s_demo_01"])
     feature: str = Field(default="qa", examples=["qa", "summary"])
     message: str = Field(..., min_length=1)
+    optimize: bool = Field(default=False, description="Apply cost-optimization levers (cheap model, trimmed prompt, capped output)")
 
 
 class ChatResponse(BaseModel):
