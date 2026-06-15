@@ -18,7 +18,7 @@ Tài liệu này tổng hợp **đã làm gì**, **làm ở file nào**, **test 
 | Required/enrichment fields missing | **0 / 0** | validator |
 | PII leaks | **0** | validator |
 | Live Langfuse traces | **103** (project VinUniDay13, JP region) | §4.2 |
-| Dashboard panels | **6 / 6** có unit + SLO line | `docs/dashboard.md` |
+| Dashboard panels | **6 / 6** có unit + SLO line | `docs/dashboard.md` (markdown) + live Chart.js tại `/dashboard` |
 | Alert rules | **4** (≥3 yêu cầu) + runbook | `config/alert_rules.yaml` |
 | Incidents tái hiện | **3 / 3** (rag_slow, tool_fail, cost_spike) | §4.3 |
 | Bonus | cost **−69.9%**, audit logs, automation | §5 |
@@ -85,6 +85,7 @@ Tài liệu này tổng hợp **đã làm gì**, **làm ở file nào**, **test 
 | `mock_llm.py` | sửa | Nhận `model`/`max_output_tokens`, token deterministic |
 | `audit.py` | **mới** | Audit log tách riêng (bonus) |
 | `optimization.py` | **mới** | Pricing + model router + prompt trim (bonus cost) |
+| `dashboard.py` | **mới** | HTML dashboard chuyên nghiệp (Chart.js) phục vụ ở `/dashboard` (bonus) |
 
 ### `scripts/` — công cụ
 | File | Trạng thái | Nội dung |
@@ -172,8 +173,9 @@ Latency P50/95/99 · Traffic · Error rate + breakdown · Cost · Tokens in/out 
   | Total cost | $0.020565 | $0.006188 | **−69.9%** |
 
   → `docs/cost-optimization.md`, verify qua trace tag `optimized`.
+- **Dashboard chuyên nghiệp (live):** `app/dashboard.py` phục vụ tại **`GET /dashboard`** — 6 panel bằng Chart.js (dark theme, đường SLO dạng nét đứt, gauge error/quality, auto-refresh 5s, time-series tích lũy ~1h), cùng origin với `/metrics` nên không vướng CORS.
 - **Audit logs tách riêng:** `app/audit.py` → `data/audit.jsonl` (PII-scrubbed, độc lập với log vận hành).
-- **Automation:** `scripts/generate_dashboard.py` + `scripts/cost_benchmark.py` tự sinh dashboard & đo cost.
+- **Automation:** `scripts/generate_dashboard.py` + `scripts/cost_benchmark.py` tự sinh dashboard markdown & đo cost.
 
 ---
 
@@ -190,6 +192,7 @@ Latency P50/95/99 · Traffic · Error rate + breakdown · Cost · Tokens in/out 
 | `07-incident-before-after.png` | latency/error trước–sau inject |
 | `08-cost-optimization.png` | bảng cost −69.9% |
 | `09-langfuse-optimized-tags.png` | trace tag `optimized` + `claude-haiku-4-5` |
+| `10-dashboard-live.png` | dashboard Chart.js 6 panel live tại `/dashboard` |
 
 Tất cả đã được nhúng vào `docs/blueprint-template.md`.
 
@@ -204,7 +207,7 @@ Tất cả đã được nhúng vào `docs/blueprint-template.md`.
 | GROUP — Live Demo | 20 | (live) | app chạy sạch (0 lỗi runtime); trình bày trực tiếp |
 | INDIVIDUAL — Report | 20 | (chấm) | `docs/blueprint-template.md` đầy đủ + giải thích sâu |
 | INDIVIDUAL — Git Evidence | 20 | (chấm) | commit + ownership từng file |
-| Bonus | 10 | +7 | cost −69.9% (+3), automation (+2), audit logs (+2) |
+| Bonus | 10 | +9~10 | cost −69.9% (+3), live Chart.js dashboard đẹp (+3), automation (+2), audit logs (+2) |
 
 ---
 
@@ -236,5 +239,6 @@ PYTHONUTF8=1 .venv/Scripts/python -m uvicorn app.main:app --env-file .env
 .venv/Scripts/python scripts/validate_logs.py              # -> 100/100
 .venv/Scripts/python scripts/generate_dashboard.py         # -> docs/dashboard.md
 .venv/Scripts/python scripts/cost_benchmark.py             # -> -69.9%
+# live dashboard: mo trinh duyet http://127.0.0.1:8000/dashboard
 .venv/Scripts/python scripts/incident_demo.py              # before/after incident
 ```

@@ -12,3 +12,6 @@
 - Incident before/after fix
 - Cost comparison before/after optimization
 - Auto-instrumentation proof
+
+
+## Đã thêm ảnh chụp vào docs/evidence

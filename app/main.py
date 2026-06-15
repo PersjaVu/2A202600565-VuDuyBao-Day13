@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from structlog.contextvars import bind_contextvars
 
 from .agent import LabAgent
 from .audit import audit
+from .dashboard import DASHBOARD_HTML
 from .incidents import disable, enable, status
 from .logging_config import configure_logging, get_logger
 from .metrics import record_error, snapshot
@@ -45,6 +46,13 @@ async def flush_endpoint() -> dict:
     # load test can assert traces have landed without waiting for shutdown.
     flush_traces()
     return {"flushed": True, "tracing_enabled": tracing_enabled()}
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard() -> HTMLResponse:
+    # Professional live dashboard (6 panels, SLO lines, auto-refresh) served
+    # from the same origin as /metrics so no CORS configuration is required.
+    return HTMLResponse(DASHBOARD_HTML)
 
 
 @app.get("/health")
