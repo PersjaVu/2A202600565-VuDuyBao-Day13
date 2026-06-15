@@ -38,3 +38,16 @@
   - shorten prompts
   - route easy requests to cheaper model
   - apply prompt cache
+
+## 4. Quality regression
+- Severity: P3
+- Trigger: `quality_score_avg < 0.75 for 30m`
+- Impact: answers degrade (missing context, redacted text leaking into output)
+- First checks:
+  1. Compare `quality_avg` in `/metrics` against the 0.75 SLO
+  2. Inspect low-scoring traces: were docs retrieved? did RAG fail?
+  3. Check whether `[REDACTED` markers are appearing inside answers
+- Mitigation:
+  - verify retrieval corpus coverage for the failing feature
+  - re-tune the heuristic / prompt template
+  - roll back the most recent prompt change

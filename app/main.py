@@ -7,13 +7,14 @@ from fastapi.responses import JSONResponse
 from structlog.contextvars import bind_contextvars
 
 from .agent import LabAgent
+from .audit import audit
 from .incidents import disable, enable, status
 from .logging_config import configure_logging, get_logger
 from .metrics import record_error, snapshot
 from .middleware import CorrelationIdMiddleware
 from .pii import hash_user_id, summarize_text
 from .schemas import ChatRequest, ChatResponse
-from .tracing import tracing_enabled
+from .tracing import flush_traces, tracing_enabled
 
 configure_logging()
 log = get_logger()
@@ -32,6 +33,20 @@ async def startup() -> None:
     )
 
 
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    # Make sure any buffered Langfuse spans are sent before the process exits.
+    flush_traces()
+
+
+@app.post("/_flush")
+async def flush_endpoint() -> dict:
+    # Test/demo helper: force-flush traces from within the server process so a
+    # load test can assert traces have landed without waiting for shutdown.
+    flush_traces()
+    return {"flushed": True, "tracing_enabled": tracing_enabled()}
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True, "tracing_enabled": tracing_enabled(), "incidents": status()}
@@ -44,9 +59,17 @@ async def metrics() -> dict:
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
-    # TODO: Enrich logs with request context (user_id_hash, session_id, feature, model, env)
-    # bind_contextvars(...)
-    
+    # Enrich every log emitted in this request with stable request context.
+    # user_id is hashed (never logged raw) to keep logs PII-free while still
+    # allowing per-user aggregation/joins downstream.
+    bind_contextvars(
+        user_id_hash=hash_user_id(body.user_id),
+        session_id=body.session_id,
+        feature=body.feature,
+        model=agent.model,
+        env=os.getenv("APP_ENV", "dev"),
+    )
+
     log.info(
         "request_received",
         service="api",
@@ -67,6 +90,13 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             tokens_out=result.tokens_out,
             cost_usd=result.cost_usd,
             payload={"answer_preview": summarize_text(result.answer)},
+        )
+        audit(
+            "chat_completed",
+            actor=hash_user_id(body.user_id),
+            feature=body.feature,
+            cost_usd=result.cost_usd,
+            tokens_total=result.tokens_in + result.tokens_out,
         )
         return ChatResponse(
             answer=result.answer,
@@ -94,6 +124,7 @@ async def enable_incident(name: str) -> JSONResponse:
     try:
         enable(name)
         log.warning("incident_enabled", service="control", payload={"name": name})
+        audit("incident_enabled", actor="control", name=name)
         return JSONResponse({"ok": True, "incidents": status()})
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -104,6 +135,7 @@ async def disable_incident(name: str) -> JSONResponse:
     try:
         disable(name)
         log.warning("incident_disabled", service="control", payload={"name": name})
+        audit("incident_disabled", actor="control", name=name)
         return JSONResponse({"ok": True, "incidents": status()})
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

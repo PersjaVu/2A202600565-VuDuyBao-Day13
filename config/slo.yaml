@@ -2,15 +2,17 @@ service: day13-observability-lab
 window: 28d
 slis:
   latency_p95_ms:
-    objective: 3000
-    target: 99.5
-    note: Replace with your group's target
+    objective: 3000          # P95 end-to-end latency must stay under 3000 ms
+    target: 99.5             # met for 99.5% of the 28d window
+    note: Baseline P95 ~170ms healthy; rag_slow incident pushes it past 2500ms
   error_rate_pct:
-    objective: 2
+    objective: 2             # < 2% of requests may return 5xx
     target: 99.0
+    note: tool_fail incident drives this above threshold via RuntimeError
   daily_cost_usd:
-    objective: 2.5
+    objective: 2.5           # spend cap of $2.5/day across all features
     target: 100.0
+    note: cost_spike incident quadruples output tokens, breaching the budget
   quality_score_avg:
-    objective: 0.75
+    objective: 0.75          # mean heuristic quality must stay >= 0.75
     target: 95.0
